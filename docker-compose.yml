@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  zapret:
+    build: .
+    container_name: zapret_socks
+    restart: unless-stopped
+    
+    # Привилегированный режим для работы с iptables и NFQUEUE
+    privileged: true
+    
+    # Альтернатива privileged (более безопасно, но может не работать везде)
+    # cap_add:
+    #   - NET_ADMIN
+    #   - NET_RAW
+    
+    ports:
+      - "1181:1181"  # SOCKS-прокси порт
+    
+    environment:
+      # Порт SOCKS-прокси
+      - SOCKS_PORT=1181
+      
+      # Номер очереди NFQUEUE
+      - NFQUEUE_NUM=200
+      
+      # Параметры nfqws для обхода DPI
+      # Примеры стратегий:
+      # - split2: разделение пакета на 2 части
+      # - disorder: изменение порядка пакетов
+      # - fake: отправка фейковых пакетов
+      # - Комбинации: --dpi-desync=split2,disorder
+      - NFQWS_ARGS=--dpi-desync=split2 --dpi-desync-split-pos=2
+      
+      # Параметры tpws
+      - TPWS_ARGS=--socks --port=1181
+      
+      # Дополнительные правила iptables (опционально)
+      # - IPTABLES_EXTRA=iptables -A OUTPUT -d 8.8.8.8 -j DROP
+    
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tpws"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Пример интеграции с sing-box
+# Раскомментируйте, если хотите запустить sing-box вместе с zapret
+#
+#  sing-box:
+#    image: ghcr.io/sagernet/sing-box:latest
+#    container_name: sing-box
+#    restart: unless-stopped
+#    
+#    ports:
+#      - "1080:1080"  # SOCKS порт sing-box
+#    
+#    volumes:
+#      - ./sing-box-config.json:/etc/sing-box/config.json:ro
+#    
+#    depends_on:
+#      - zapret
+#    
+#    command: run -c /etc/sing-box/config.json

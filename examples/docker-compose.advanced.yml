@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  zapret:
+    build: .
+    container_name: zapret_socks
+    restart: unless-stopped
+    privileged: true
+    
+    ports:
+      - "1181:1181"
+    
+    environment:
+      - SOCKS_PORT=1181
+      - NFQUEUE_NUM=200
+      
+      # Агрессивная стратегия для сложных DPI
+      - NFQWS_ARGS=--dpi-desync=fake,split2 --dpi-desync-ttl=4 --dpi-desync-fooling=badsum --dpi-desync-split-pos=2 --dpi-desync-autottl=2 --hostcase
+      
+      - TPWS_ARGS=--socks --port=1181
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tpws"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  sing-box:
+    image: ghcr.io/sagernet/sing-box:latest
+    container_name: sing-box
+    restart: unless-stopped
+    
+    ports:
+      - "1080:1080"
+    
+    volumes:
+      - ./examples/sing-box-config.json:/etc/sing-box/config.json:ro
+    
+    depends_on:
+      zapret:
+        condition: service_healthy
+    
+    command: run -c /etc/sing-box/config.json
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    name: zapret-network
