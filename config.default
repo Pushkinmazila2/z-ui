@@ -84,11 +84,9 @@ NFQWS2_UDP_PKT_IN=3
 # use <HOSTLIST> and <HOSTLIST_NOAUTO> placeholders to engage standard hostlists and autohostlist in ipset dir
 # hostlist markers are replaced to empty string if MODE_FILTER does not satisfy
 # <HOSTLIST_NOAUTO> appends ipset/zapret-hosts-auto.txt as normal list
-NFQWS2_OPT="
---filter-tcp=80 --filter-l7=http <HOSTLIST> --payload=http_req --lua-desync=fake:blob=fake_default_http:tcp_md5 --lua-desync=multisplit:pos=method+2 --new
---filter-tcp=443 --filter-l7=tls <HOSTLIST> --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000 --lua-desync=multidisorder:pos=1,midsld --new
---filter-udp=443 --filter-l7=quic <HOSTLIST_NOAUTO> --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
-"
+NFQWS_OPT_DESYNC_HTTPS="--lua-desync=wssize:wsize=1:scale=6 --payload=tls_client_hello --lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd') --lua-desync=multidisorder:pos=2,midsld:seqovl=1:seqovl_pattern=fake_default_tls"
+NFQWS_OPT_DESYNC_QUIC="--lua-desync=wssize:wsize=1:scale=6 --payload=tls_client_hello --lua-desync=multidisorder:pos=1"
+NFQWS_OPT_DESYNC_HTTP="--desync-any-proto=http --desync-split-http-req=method"
 
 # none,ipset,hostlist,autohostlist
 MODE_FILTER=none

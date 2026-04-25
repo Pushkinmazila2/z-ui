@@ -1,0 +1,4 @@
+
+NFQWS_OPT_DESYNC_HTTPS="--lua-desync=wssize:wsize=1:scale=6 --payload=tls_client_hello --lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd') --lua-desync=multidisorder:pos=2,midsld:seqovl=1:seqovl_pattern=fake_default_tls"
+NFQWS_OPT_DESYNC_QUIC="--lua-desync=wssize:wsize=1:scale=6 --payload=tls_client_hello --lua-desync=multidisorder:pos=1"
+NFQWS_OPT_DESYNC_HTTP="--desync-any-proto=http --desync-split-http-req=method"
