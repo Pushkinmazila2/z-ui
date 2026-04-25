@@ -195,26 +195,19 @@ if [ "$NFQWS2_ENABLE" = "1" ]; then
     NFQWS_OPTS="$NFQWS_OPTS $NFQWS2_OPT"
 else
     log_info "Using default DPI bypass strategy"
-    NFQWS_OPTS="$NFQWS_OPTS --filter-tcp=80,443 --filter-l7=http,tls --out-range=-d10"
-    NFQWS_OPTS="$NFQWS_OPTS --payload=http_req --lua-desync=fake:blob=fake_default_http:tcp_md5"
-    NFQWS_OPTS="$NFQWS_OPTS --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5:repeats=6"
-    NFQWS_OPTS="$NFQWS_OPTS --lua-desync=multidisorder:pos=midsld"
+    NFQWS_OPTS="$NFQWS_OPTS --filter-tcp=80,443 --filter-l7=http,tls --out-range=-d10 --lua-desync=multidisorder:pos=midsld"
 fi
 
-# Create named pipes for log processing
-mkfifo /tmp/dante.pipe /tmp/nfqws.pipe 2>/dev/null || true
-
-# Запуск nfqws2 (ВАЖНО: запускаем от root)
+# 1. Запуск nfqws2 (только один раз!)
 log_info "Starting nfqws2 on queue $NFQUEUE_NUM (as root)"
 (
-    # Флаг -v нужен для того, чтобы process_nfqws_log видел события
     /usr/local/bin/nfqws2 -v $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
         process_nfqws_log "$line"
     done
 ) &
 NFQWS_PID=$!
 
-# Запуск dante (ВАЖНО: он сам сбросит привилегии до proxyuser)
+# 2. Запуск dante (только один раз!)
 log_info "Starting dante SOCKS5 server on port $SOCKS5_PORT"
 (
     sockd -f /etc/sockd.conf -D 2>&1 | while IFS= read -r line; do
@@ -227,6 +220,7 @@ SOCKS_PID=$!
 trap 'log_info "Shutting down..."; kill $SOCKS_PID $NFQWS_PID 2>/dev/null; exit 0' SIGTERM SIGINT
 
 log_info "✓ zapret2 is ready!"
+wait $SOCKS_PID $NFQWS_PID
 log_info "  SOCKS5: 0.0.0.0:$SOCKS5_PORT"
 log_info "  NFQUEUE: $NFQUEUE_NUM"
 log_info "  Log level: $LOG_LEVEL"
