@@ -195,6 +195,10 @@ FINAL_NFQWS_OPTS="$NFQWS_BASE
 --lua-desync=multidisorder:pos=midsld"
 fi
 
+if [ "$DEBUG" = "1" ]; then
+    debug_dump
+fi
+
 # --- START SERVICES ---
 
 log_info "Starting nfqws2"
