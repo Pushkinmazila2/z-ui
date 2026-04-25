@@ -95,10 +95,10 @@ iptables -t mangle -A OUTPUT -m owner --uid-owner root -j RETURN
 
 # 5. MAIN RULE (ONLY proxyuser traffic)
 
-iptables -t mangle -A OUTPUT 
--m owner --uid-owner proxyuser 
--p tcp 
--j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
+iptables -t mangle -A OUTPUT \
+    -m owner --uid-owner proxyuser \
+    -p tcp \
+    -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
 
 # --- DEBUG (optional) ---
 
