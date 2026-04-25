@@ -1,5 +1,7 @@
 #!/bin/bash
 
+
+
 set -e
 
 LOG_LEVEL=${LOG_LEVEL:-info}
@@ -61,6 +63,59 @@ log_info "Loading config from $ZAPRET_CONFIG"
 else
 log_warn "Config not found, using defaults"
 fi
+
+debug_dump() {
+log_warn "==== DEBUG MODE ENABLED ===="
+
+```
+echo "---- USER ----"
+id
+
+echo "---- CAPABILITIES ----"
+capsh --print 2>/dev/null || echo "capsh not available"
+
+echo "---- NETWORK ----"
+ip a || true
+ip route || true
+
+echo "---- IPTABLES ----"
+iptables -t mangle -L -v || true
+
+echo "---- NFQUEUE ----"
+if [ -f /proc/net/netfilter/nfnetlink_queue ]; then
+    cat /proc/net/netfilter/nfnetlink_queue
+else
+    echo "NFQUEUE proc file not found"
+fi
+
+echo "---- MODULES ----"
+lsmod | grep nfnetlink_queue || echo "nfnetlink_queue not loaded"
+
+echo "---- BINARIES ----"
+ls -lah /usr/local/bin/
+
+echo "---- LDD nfqws2 ----"
+ldd /usr/local/bin/nfqws2 || true
+
+echo "---- LDD sockd ----"
+ldd /usr/sbin/sockd || true
+
+echo "---- LUA FILES ----"
+ls -lah /opt/zapret2/lua/ || true
+
+echo "---- CONFIG ----"
+ls -lah /opt/zapret2/ || true
+
+echo "---- NFQWS TEST RUN ----"
+/usr/local/bin/nfqws2 -v $FINAL_NFQWS_OPTS 2>&1 || true
+
+echo "---- SOCKD TEST RUN ----"
+sockd -f /etc/sockd.conf -D 2>&1 || true
+
+log_warn "==== DEBUG END ===="
+```
+
+}
 
 # --- USER ---
 
