@@ -97,43 +97,38 @@ process_dante_log() {
 # Process nfqws2 logs
 process_nfqws_log() {
     local line="$1"
-    local client_ip=""
-    local host=""
+    local client_ip=$(cat "$LAST_CLIENT_IP" 2>/dev/null || echo "0.0.0.0")
     
-    # Extract hostname from nfqws2 output
-    if echo "$line" | grep -qE "(hostname|SNI|Host:)"; then
-        host=$(echo "$line" | sed -nE 's/.*(hostname|SNI|Host:)[: ]*([^ ]+).*/\2/p' | head -1)
-        
-        if [ -n "$host" ]; then
-            # Find client IP from recent connections
-            client_ip=$(grep "^$host " "$CLIENT_MAP" 2>/dev/null | tail -1 | awk '{print $2}')
-        fi
-    fi
-    
-    # DPI bypass actions
-    if echo "$line" | grep -qE "(desync|fake|split|disorder)"; then
-        if [ "$LOG_LEVEL" = "debug" ]; then
-            log_debug "DPI: $line" "$client_ip"
-        elif [ -n "$host" ]; then
-            log_info "DPI bypass applied: $host" "$client_ip"
-        fi
+    # Логируем применение стратегий (Desync)
+    if echo "$line" | grep -qE "(desync|fake|split|disorder|wssize)"; then
+        echo -e "${MAGENTA}[$(timestamp)] [DPI-ACTIVE]${NC} [${CYAN}$client_ip${NC}] Стратегия сработала: ${YELLOW}$line${NC}"
         return
     fi
-    
-    # Packet details in debug mode
-    if [ "$LOG_LEVEL" = "debug" ]; then
-        if echo "$line" | grep -qE "(packet|TCP|UDP|TLS|QUIC)"; then
-            log_debug "PKT: $line" "$client_ip"
-        fi
+
+    # Логируем определение хоста (SNI/Host)
+    if echo "$line" | grep -qE "(hostname|SNI|Host:)"; then
+        local host=$(echo "$line" | sed -nE 's/.*(hostname|SNI|Host:)[: ]*([^ ]+).*/\2/p' | head -1)
+        echo -e "${BLUE}[$(timestamp)] [TARGET]${NC} [${CYAN}$client_ip${NC}] Запрос к: ${GREEN}$host${NC}"
+        return
     fi
-    
-    # Always log errors
-    if echo "$line" | grep -qiE "(error|fail)"; then
-        log_error "NFQWS: $line"
+
+    # Ошибки всегда в лог
+    if echo "$line" | grep -qiE "(error|fail|drop)"; then
+        log_error "NFQWS ERROR: $line"
     fi
 }
+if [[ "$NFQWS_OPTS" != *"-v"* ]]; then
+    NFQWS_OPTS="-v $NFQWS_OPTS"
+fi
 
+(
+    /usr/local/bin/nfqws2 $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
+        process_nfqws_log "$line"
+    done
+) &
+NFQWS_PID=$!
 # Configuration
+log_info "Starting nfqws2 on queue $NFQUEUE_NUM"
 log_info "Starting zapret2 SOCKS5 proxy container"
 log_info "Log level: $LOG_LEVEL"
 
