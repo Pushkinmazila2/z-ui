@@ -52,15 +52,7 @@ RUN apk add --no-cache \
     dante-server \
     iproute2 \
     ca-certificates \
-    libcap \
-    bind-tools \
-    binutils \
-    grep \
-    sed \
-    gawk \
-    iptables \
-    ip6tables \
-    conntrack-tools
+    libcap
 
 # Copy compiled binaries
 COPY --from=builder /build/nfq2/nfqws2 /usr/local/bin/
@@ -74,12 +66,6 @@ COPY ipset/ /opt/zapret2/ipset/
 COPY files/ /opt/zapret2/files/
 COPY common/ /opt/zapret2/common/
 COPY config.default /opt/zapret2/
-
-# blockcheck2.sh scripts and directoris
-COPY blockcheck2.sh /opt/zapret2/
-COPY blockcheck2.d/ /opt/zapret2/blockcheck2.d/
-COPY common/ /opt/zapret2/common/
-COPY zapret-antidpi.lua /opt/zapret2/ # Важно для nfqws2
 
 # Create necessary directories
 RUN mkdir -p /opt/zapret2/tmp \
