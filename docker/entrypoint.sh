@@ -71,7 +71,6 @@ fi
 debug_dump() {
 log_warn "==== DEBUG MODE ENABLED ===="
 
-```
 echo "---- USER ----"
 id
 
@@ -117,7 +116,6 @@ echo "---- SOCKD TEST RUN ----"
 sockd -f /etc/sockd.conf -D 2>&1 || true
 
 log_warn "==== DEBUG END ===="
-```
 
 }
 
