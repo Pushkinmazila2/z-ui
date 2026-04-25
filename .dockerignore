@@ -3,6 +3,10 @@
 .gitignore
 .gitattributes
 
+# MCP
+.continue/
+new-mcp-server.yaml
+
 # Docker
 docker-compose.yml
 Dockerfile
