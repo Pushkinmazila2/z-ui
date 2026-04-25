@@ -169,10 +169,12 @@ fi
 
 # --- DANTE CONFIG ---
 
+EXT_IP=$(ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+
 cat > /etc/sockd.conf <<EOF
 logoutput: stderr
 internal: 0.0.0.0 port = $SOCKS5_PORT
-external: eth0
+external: $EXT_IP
 
 clientmethod: none
 socksmethod: none
@@ -191,31 +193,23 @@ EOF
 
 # --- NFQWS OPTIONS ---
 
-NFQWS_BASE="--qnum=$NFQUEUE_NUM 
---lua-init=@/opt/zapret2/lua/zapret-lib.lua 
---lua-init=@/opt/zapret2/lua/zapret-antidpi.lua"
-
-log_info "Testing nfqws2..."
-/usr/local/bin/nfqws2 --qnum=$NFQUEUE_NUM \
-  --lua-init=@/opt/zapret2/lua/zapret-lib.lua \
-  --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua \
-  --version 2>&1 || true
-echo "nfqws2 exit: $?"
-
-# Тест sockd
-log_info "Testing sockd config..."
-sockd -f /etc/sockd.conf -V 2>&1 || true
-echo "sockd exit: $?"
+NFQWS_ARGS=(
+  "--qnum=$NFQUEUE_NUM"
+  "--lua-init=@/opt/zapret2/lua/zapret-lib.lua"
+  "--lua-init=@/opt/zapret2/lua/zapret-antidpi.lua"
+)
 
 if [ "$NFQWS2_ENABLE" = "1" ]; then
-log_info "Using custom strategy"
-FINAL_NFQWS_OPTS="$NFQWS_BASE $NFQWS2_OPT"
+  log_info "Using custom strategy"
+  read -ra EXTRA_OPTS <<< "$NFQWS2_OPT"
+  NFQWS_ARGS+=("${EXTRA_OPTS[@]}")
 else
-log_info "Using default strategy"
-FINAL_NFQWS_OPTS="$NFQWS_BASE 
---filter-tcp=80,443 
---filter-l7=http,tls 
---lua-desync=multidisorder:pos=midsld"
+  log_info "Using default strategy"
+  NFQWS_ARGS+=(
+    "--filter-tcp=80,443"
+    "--filter-l7=http,tls"
+    "--lua-desync=multidisorder:pos=midsld"
+  )
 fi
 
 if [ "$DEBUG" = "1" ]; then
@@ -225,7 +219,8 @@ fi
 # --- START SERVICES ---
 
 log_info "Starting nfqws2"
-( /usr/local/bin/nfqws2 -v $FINAL_NFQWS_OPTS 2>&1 | while read -r l; do process_nfqws_log "$l"; done ) &
+log_debug "FINAL ARGS: $(printf '[%s] ' "${NFQWS_ARGS[@]}")"
+( /usr/local/bin/nfqws2 "${NFQWS_ARGS[@]}" 2>&1 | while read -r l; do process_nfqws_log "$l"; done ) &
 NFQWS_PID=$!
 
 log_info "Starting SOCKS5 (Dante)"
@@ -237,20 +232,17 @@ log_info "✓ Ready on port $SOCKS5_PORT"
 # --- WATCHDOG ---
 
 while true; do
-if ! kill -0 $NFQWS_PID 2>/dev/null; then
-log_error "nfqws2 died, restarting"
-( /usr/local/bin/nfqws2 -v $FINAL_NFQWS_OPTS 2>&1 | while read -r l; do process_nfqws_log "$l"; done ) &
-NFQWS_PID=$!
-fi
+  if ! kill -0 $NFQWS_PID 2>/dev/null; then
+    log_error "nfqws2 died, restarting"
+    ( /usr/local/bin/nfqws2 "${NFQWS_ARGS[@]}" 2>&1 | while read -r l; do process_nfqws_log "$l"; done ) &
+    NFQWS_PID=$!
+  fi
 
-```
-if ! kill -0 $SOCKS_PID 2>/dev/null; then
+  if ! kill -0 $SOCKS_PID 2>/dev/null; then
     log_error "sockd died, restarting"
     ( sockd -f /etc/sockd.conf -D 2>&1 | while read -r l; do process_dante_log "$l"; done ) &
     SOCKS_PID=$!
-fi
+  fi
 
-sleep 5
-```
-
+  sleep 5
 done
