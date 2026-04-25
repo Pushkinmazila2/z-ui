@@ -3,7 +3,7 @@
 
 
 set -e
-
+DEBUG=1
 LOG_LEVEL=${LOG_LEVEL:-info}
 
 RED='\033[0;31m'
@@ -50,6 +50,10 @@ fi
 ```
 
 }
+if [ "$LOG_LEVEL" = "debug" ]; then
+log_debug "after process_dante_log iptables rules:"
+iptables -t mangle -L OUTPUT -v
+fi
 
 log_info "Starting zapret2 (OUTPUT mode)"
 
@@ -116,6 +120,7 @@ log_warn "==== DEBUG END ===="
 ```
 
 }
+
 echo "---- SYSCTL ----"
 sysctl net.netfilter.nf_conntrack_max 2>/dev/null || true
 
