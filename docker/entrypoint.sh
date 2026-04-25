@@ -204,25 +204,6 @@ fi
 # Create named pipes for log processing
 mkfifo /tmp/dante.pipe /tmp/nfqws.pipe 2>/dev/null || true
 
-# Start dante with log processing
-log_info "Starting dante SOCKS5 server on port $SOCKS5_PORT"
-(
-    sockd -f /etc/sockd.conf -D 2>&1 | while IFS= read -r line; do
-        process_dante_log "$line"
-    done
-) &
-SOCKS_PID=$!
-
-# Start nfqws2 with log processing
-log_info "Starting nfqws2 on queue $NFQUEUE_NUM"
-log_debug "nfqws2 options: $NFQWS_OPTS"
-(
-    /usr/local/bin/nfqws2 $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
-        process_nfqws_log "$line"
-    done
-) &
-NFQWS_PID=$!
-
 # Запуск nfqws2 (ВАЖНО: запускаем от root)
 log_info "Starting nfqws2 on queue $NFQUEUE_NUM (as root)"
 (
