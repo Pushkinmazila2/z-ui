@@ -152,14 +152,18 @@ log_info "Setting up iptables rules"
 iptables -t mangle -F
 iptables -F
 
-# Skip dante's own traffic
-iptables -t mangle -A OUTPUT -m owner --uid-owner proxyuser -j RETURN
+# 1. ИСКЛЮЧАЕМ трафик nfqws2 (работает от root), чтобы избежать петли
+iptables -t mangle -A OUTPUT -m owner --uid-owner root -j RETURN
 
-# Send everything else to NFQUEUE
-iptables -t mangle -A OUTPUT -p tcp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
-iptables -t mangle -A OUTPUT -p udp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
+# 2. ОТПРАВЛЯЕМ трафик Dante (proxyuser) в NFQUEUE
+# Теперь всё, что пришло на SOCKS5, пойдет через DPI
+iptables -t mangle -A OUTPUT -m owner --uid-owner proxyuser -p tcp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
+iptables -t mangle -A OUTPUT -m owner --uid-owner proxyuser -p udp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
 
-log_debug "iptables rules configured"
+# 3. Разрешаем DNS (на всякий случай, если Dante делает резолв сам)
+iptables -t mangle -A OUTPUT -p udp --dport 53 -j RETURN
+
+log_debug "iptables rules configured: Proxy traffic -> NFQUEUE"
 
 # Configure dante
 log_info "Configuring dante SOCKS5 server"
@@ -218,6 +222,25 @@ log_debug "nfqws2 options: $NFQWS_OPTS"
     done
 ) &
 NFQWS_PID=$!
+
+# Запуск nfqws2 (ВАЖНО: запускаем от root)
+log_info "Starting nfqws2 on queue $NFQUEUE_NUM (as root)"
+(
+    # Флаг -v нужен для того, чтобы process_nfqws_log видел события
+    /usr/local/bin/nfqws2 -v $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
+        process_nfqws_log "$line"
+    done
+) &
+NFQWS_PID=$!
+
+# Запуск dante (ВАЖНО: он сам сбросит привилегии до proxyuser)
+log_info "Starting dante SOCKS5 server on port $SOCKS5_PORT"
+(
+    sockd -f /etc/sockd.conf -D 2>&1 | while IFS= read -r line; do
+        process_dante_log "$line"
+    done
+) &
+SOCKS_PID=$!
 
 # Graceful shutdown
 trap 'log_info "Shutting down..."; kill $SOCKS_PID $NFQWS_PID 2>/dev/null; exit 0' SIGTERM SIGINT
