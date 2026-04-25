@@ -173,12 +173,20 @@ cat > /etc/sockd.conf <<EOF
 logoutput: stderr
 internal: 0.0.0.0 port = $SOCKS5_PORT
 external: eth0
+
 clientmethod: none
 socksmethod: none
+
 user.privileged: root
 user.unprivileged: proxyuser
-client pass { from: 0.0.0.0/0 to: 0.0.0.0/0; }
-socks pass { from: 0.0.0.0/0 to: 0.0.0.0/0; }
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+}
 EOF
 
 # --- NFQWS OPTIONS ---
