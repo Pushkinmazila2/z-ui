@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Logging configuration
-LOG_LEVEL=${LOG_LEVEL:-debug}  # info or debug
+# Настройка логирования
+LOG_LEVEL=${LOG_LEVEL:-debug}
 
-# Color codes
+# Цвета для логов
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -12,161 +12,74 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Temporary files for client tracking
+# Файлы для отслеживания клиентов
 CLIENT_MAP="/tmp/zapret2_client_map"
 LAST_CLIENT_IP="/tmp/zapret2_last_client"
 touch "$CLIENT_MAP" "$LAST_CLIENT_IP"
 
-# Logging functions
-timestamp() {
-    date '+%Y-%m-%d %H:%M:%S'
-}
+timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
-log_info() {
-    local client_ip="$2"
-    if [ -n "$client_ip" ]; then
-        echo -e "${GREEN}[$(timestamp)] [INFO]${NC} [${MAGENTA}$client_ip${NC}] $1"
-    else
-        echo -e "${GREEN}[$(timestamp)] [INFO]${NC} $1"
-    fi
-}
+log_info() { echo -e "${GREEN}[$(timestamp)] [INFO]${NC} $1"; }
+log_debug() { [ "$LOG_LEVEL" = "debug" ] && echo -e "${CYAN}[$(timestamp)] [DEBUG]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[$(timestamp)] [WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[$(timestamp)] [ERROR]${NC} $1" >&2; }
 
-log_debug() {
-    if [ "$LOG_LEVEL" = "debug" ]; then
-        local client_ip="$2"
-        if [ -n "$client_ip" ]; then
-            echo -e "${CYAN}[$(timestamp)] [DEBUG]${NC} [${MAGENTA}$client_ip${NC}] $1"
-        else
-            echo -e "${CYAN}[$(timestamp)] [DEBUG]${NC} $1"
-        fi
-    fi
-}
-
-log_warn() {
-    echo -e "${YELLOW}[$(timestamp)] [WARN]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[$(timestamp)] [ERROR]${NC} $1" >&2
-}
-
-# Extract IP from dante log line
-extract_client_ip() {
-    echo "$1" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1
-}
-
-# Extract hostname from connection
-extract_hostname() {
-    echo "$1" | sed -nE 's/.*to ([^:]+):.*/\1/p' | head -1
-}
-
-# Process dante logs
-process_dante_log() {
-    local line="$1"
-    local client_ip=""
-    
-    # New connection
-    if echo "$line" | grep -q "accept.*connection from"; then
-        client_ip=$(extract_client_ip "$line")
-        if [ -n "$client_ip" ]; then
-            echo "$client_ip" > "$LAST_CLIENT_IP"
-            log_info "New SOCKS5 connection" "$client_ip"
-        fi
-        return
-    fi
-    
-    # Connection to destination
-    if echo "$line" | grep -q "connect.*to"; then
-        local host=$(extract_hostname "$line")
-        client_ip=$(cat "$LAST_CLIENT_IP" 2>/dev/null || echo "")
-        
-        if [ -n "$host" ] && [ -n "$client_ip" ]; then
-            echo "$host $client_ip $(timestamp)" >> "$CLIENT_MAP"
-            log_info "→ $host" "$client_ip"
-        fi
-        return
-    fi
-    
-    # Debug mode - log everything
-    if [ "$LOG_LEVEL" = "debug" ]; then
-        client_ip=$(cat "$LAST_CLIENT_IP" 2>/dev/null || echo "")
-        log_debug "DANTE: $line" "$client_ip"
-    fi
-}
-
-# Process nfqws2 logs
+# Обработка логов nfqws2
 process_nfqws_log() {
     local line="$1"
-    local client_ip=$(cat "$LAST_CLIENT_IP" 2>/dev/null || echo "0.0.0.0")
-    
-    # Логируем применение стратегий (Desync)
-    if echo "$line" | grep -qE "(desync|fake|split|disorder|wssize)"; then
-        echo -e "${MAGENTA}[$(timestamp)] [DPI-ACTIVE]${NC} [${CYAN}$client_ip${NC}] Стратегия сработала: ${YELLOW}$line${NC}"
-        return
-    fi
-
-    # Логируем определение хоста (SNI/Host)
-    if echo "$line" | grep -qE "(hostname|SNI|Host:)"; then
+    # Логируем срабатывание стратегий
+    if echo "$line" | grep -qE "(desync|fake|split|disorder|wssize|seqovl)"; then
+        echo -e "${MAGENTA}[$(timestamp)] [DPI-ACTIVE]${NC} ${YELLOW}$line${NC}"
+    # Логируем хосты
+    elif echo "$line" | grep -qE "(hostname|SNI|Host:)"; then
         local host=$(echo "$line" | sed -nE 's/.*(hostname|SNI|Host:)[: ]*([^ ]+).*/\2/p' | head -1)
-        echo -e "${BLUE}[$(timestamp)] [TARGET]${NC} [${CYAN}$client_ip${NC}] Запрос к: ${GREEN}$host${NC}"
-        return
-    fi
-
-    # Ошибки всегда в лог
-    if echo "$line" | grep -qiE "(error|fail|drop)"; then
-        log_error "NFQWS ERROR: $line"
+        echo -e "${BLUE}[$(timestamp)] [TARGET]${NC} Запрос к: ${GREEN}$host${NC}"
+    # Логируем ошибки
+    elif echo "$line" | grep -qiE "(error|fail|drop)"; then
+        log_error "NFQWS: $line"
     fi
 }
-if [[ "$NFQWS_OPTS" != *"-v"* ]]; then
-    NFQWS_OPTS="-v $NFQWS_OPTS"
-fi
 
-(
-    /usr/local/bin/nfqws2 $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
-        process_nfqws_log "$line"
-    done
-) &
-NFQWS_PID=$!
-# Configuration
-log_info "Starting nfqws2 on queue $NFQUEUE_NUM"
+# Обработка логов Dante (SOCKS5)
+process_dante_log() {
+    local line="$1"
+    if echo "$line" | grep -q "accept.*connection from"; then
+        local ip=$(echo "$line" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
+        log_info "New SOCKS5 connection from $ip"
+    fi
+}
+
 log_info "Starting zapret2 SOCKS5 proxy container"
-log_info "Log level: $LOG_LEVEL"
 
+# Переменные по умолчанию
 SOCKS5_PORT=${SOCKS5_PORT:-1080}
 NFQUEUE_NUM=${NFQUEUE_NUM:-200}
 ZAPRET_CONFIG=${ZAPRET_CONFIG:-/opt/zapret2/config}
 
-# Load config
-if [ ! -f "$ZAPRET_CONFIG" ]; then
-    log_info "Using default configuration"
-    cp /opt/zapret2/config.default "$ZAPRET_CONFIG"
+# Загрузка конфига
+if [ -f "$ZAPRET_CONFIG" ]; then
+    log_info "Loading config from $ZAPRET_CONFIG"
+    . "$ZAPRET_CONFIG"
+else
+    log_warn "Config file not found, using defaults"
 fi
-. "$ZAPRET_CONFIG"
 
-# Create proxy user
-log_debug "Creating proxy user"
+# Создание пользователя для прокси (Dante)
 id -u proxyuser &>/dev/null || adduser -D -H -s /bin/false proxyuser
 
-# Setup iptables
+# Настройка iptables (ВАЖНО для обхода DPI)
 log_info "Setting up iptables rules"
 iptables -t mangle -F
 iptables -F
-
-# 1. ИСКЛЮЧАЕМ трафик nfqws2 (работает от root), чтобы избежать петли
+# 1. Исключаем трафик nfqws2 (от root), чтобы не зациклиться
 iptables -t mangle -A OUTPUT -m owner --uid-owner root -j RETURN
-
-# 2. ОТПРАВЛЯЕМ трафик Dante (proxyuser) в NFQUEUE
-# Теперь всё, что пришло на SOCKS5, пойдет через DPI
+# 2. Весь трафик от Dante (proxyuser) отправляем в DPI
 iptables -t mangle -A OUTPUT -m owner --uid-owner proxyuser -p tcp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
 iptables -t mangle -A OUTPUT -m owner --uid-owner proxyuser -p udp -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass
-
-# 3. Разрешаем DNS (на всякий случай, если Dante делает резолв сам)
+# 3. Разрешаем DNS напрямую
 iptables -t mangle -A OUTPUT -p udp --dport 53 -j RETURN
 
-log_debug "iptables rules configured: Proxy traffic -> NFQUEUE"
-
-# Configure dante
-log_info "Configuring dante SOCKS5 server"
+# Конфигурация Dante
 cat > /etc/sockd.conf <<EOF
 logoutput: stderr
 internal: 0.0.0.0 port = $SOCKS5_PORT
@@ -175,55 +88,45 @@ clientmethod: none
 socksmethod: none
 user.privileged: root
 user.unprivileged: proxyuser
-
-client pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    log: error
-}
-
-socks pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    log: error
-}
+client pass { from: 0.0.0.0/0 to: 0.0.0.0/0; log: error; }
+socks pass { from: 0.0.0.0/0 to: 0.0.0.0/0; log: error; }
 EOF
 
-# Prepare nfqws2 options
-NFQWS_OPTS="--qnum=$NFQUEUE_NUM --lua-init=@/opt/zapret2/lua/zapret-lib.lua --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua"
+# Сборка опций nfqws2
+NFQWS_BASE="--qnum=$NFQUEUE_NUM --lua-init=@/opt/zapret2/lua/zapret-lib.lua --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua"
 
 if [ "$NFQWS2_ENABLE" = "1" ]; then
-    log_info "Using custom NFQWS2_OPT from config"
-    NFQWS_OPTS="$NFQWS_OPTS $NFQWS2_OPT"
+    log_info "Using custom strategy: $NFQWS2_OPT"
+    FINAL_NFQWS_OPTS="$NFQWS_BASE $NFQWS2_OPT"
 else
-    log_info "Using default DPI bypass strategy"
-    NFQWS_OPTS="$NFQWS_OPTS --filter-tcp=80,443 --filter-l7=http,tls --out-range=-d10 --lua-desync=multidisorder:pos=midsld"
+    log_info "Using default strategy"
+    FINAL_NFQWS_OPTS="$NFQWS_BASE --filter-tcp=80,443 --filter-l7=http,tls --lua-desync=multidisorder:pos=midsld"
 fi
 
-# 1. Запуск nfqws2 (только один раз!)
-log_info "Starting nfqws2 on queue $NFQUEUE_NUM (as root)"
-(
-    /usr/local/bin/nfqws2 -v $NFQWS_OPTS 2>&1 | while IFS= read -r line; do
-        process_nfqws_log "$line"
-    done
-) &
+# Запуск процессов
+log_info "Launching services..."
+
+# 1. NFQWS2
+( /usr/local/bin/nfqws2 -v $FINAL_NFQWS_OPTS 2>&1 | while read -r line; do process_nfqws_log "$line"; done ) &
 NFQWS_PID=$!
 
-# 2. Запуск dante (только один раз!)
-log_info "Starting dante SOCKS5 server on port $SOCKS5_PORT"
-(
-    sockd -f /etc/sockd.conf -D 2>&1 | while IFS= read -r line; do
-        process_dante_log "$line"
-    done
-) &
+# 2. Dante
+( sockd -f /etc/sockd.conf -D 2>&1 | while read -r line; do process_dante_log "$line"; done ) &
 SOCKS_PID=$!
 
-# Graceful shutdown
-trap 'log_info "Shutting down..."; kill $SOCKS_PID $NFQWS_PID 2>/dev/null; exit 0' SIGTERM SIGINT
+log_info "✓ zapret2 is ready! Listening on $SOCKS5_PORT"
 
-log_info "✓ zapret2 is ready!"
-wait $SOCKS_PID $NFQWS_PID
-log_info "  SOCKS5: 0.0.0.0:$SOCKS5_PORT"
-log_info "  NFQUEUE: $NFQUEUE_NUM"
-log_info "  Log level: $LOG_LEVEL"
-
-# Wait for processes
-wait $SOCKS_PID $NFQWS_PID
+# Мониторинг (не дает контейнеру упасть)
+while true; do
+    if ! kill -0 $NFQWS_PID 2>/dev/null; then
+        log_error "NFQWS process died! Restarting..."
+        ( /usr/local/bin/nfqws2 -v $FINAL_NFQWS_OPTS 2>&1 | while read -r line; do process_nfqws_log "$line"; done ) &
+        NFQWS_PID=$!
+    fi
+    if ! kill -0 $SOCKS_PID 2>/dev/null; then
+        log_error "SOCKS5 process died! Restarting..."
+        ( sockd -f /etc/sockd.conf -D 2>&1 | while read -r line; do process_dante_log "$line"; done ) &
+        SOCKS_PID=$!
+    fi
+    sleep 10
+done
