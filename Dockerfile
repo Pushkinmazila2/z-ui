@@ -52,7 +52,8 @@ RUN apk add --no-cache \
     dante-server \
     iproute2 \
     ca-certificates \
-    libcap
+    libcap \
+    libcap-utils
 
 # Copy compiled binaries
 COPY --from=builder /build/nfq2/nfqws2 /usr/local/bin/

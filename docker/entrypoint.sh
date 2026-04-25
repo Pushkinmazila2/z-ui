@@ -116,6 +116,8 @@ log_warn "==== DEBUG END ===="
 ```
 
 }
+echo "---- SYSCTL ----"
+sysctl net.netfilter.nf_conntrack_max 2>/dev/null || true
 
 # --- USER ---
 
