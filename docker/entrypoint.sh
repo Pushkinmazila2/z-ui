@@ -195,6 +195,18 @@ NFQWS_BASE="--qnum=$NFQUEUE_NUM
 --lua-init=@/opt/zapret2/lua/zapret-lib.lua 
 --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua"
 
+log_info "Testing nfqws2..."
+/usr/local/bin/nfqws2 --qnum=$NFQUEUE_NUM \
+  --lua-init=@/opt/zapret2/lua/zapret-lib.lua \
+  --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua \
+  --version 2>&1 || true
+echo "nfqws2 exit: $?"
+
+# Тест sockd
+log_info "Testing sockd config..."
+sockd -f /etc/sockd.conf -V 2>&1 || true
+echo "sockd exit: $?"
+
 if [ "$NFQWS2_ENABLE" = "1" ]; then
 log_info "Using custom strategy"
 FINAL_NFQWS_OPTS="$NFQWS_BASE $NFQWS2_OPT"
